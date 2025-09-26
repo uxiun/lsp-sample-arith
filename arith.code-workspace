@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "../tree-sitter-arith"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}

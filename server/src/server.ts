@@ -16,10 +16,29 @@ import {
 } from "vscode-languageserver/node"
 
 import { TextDocument } from "vscode-languageserver-textdocument"
+import { Language, Node, Parser } from 'web-tree-sitter'
+import path = require('path');
+
+let parser: Parser
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
-const connection = createConnection(ProposedFeatures.all)
+const connection = createConnection(ProposedFeatures.all);
+
+// サーバーのメインロジック (connection.onInitialize の後などが良い)
+(async () => {
+	// Parserを初期化
+	await Parser.init();
+	parser = new Parser();
+
+	// .wasm ファイルへのパスを解決
+	// __dirname はコンパイル後のJSファイルがある場所 (例: server/out) を指す
+	const wasmPath = path.resolve(__dirname, '../../parsers/tree-sitter-arith.wasm');
+	const ArithLanguage = await Language.load(wasmPath);
+	parser.setLanguage(ArithLanguage);
+
+	console.log('Arithmetic parser loaded successfully.');
+})(); // 非同期の即時実行関数で囲む
 
 // Create a simple text document manager.
 const documents = new TextDocuments(TextDocument)
@@ -154,9 +173,49 @@ interface PatternProblem {
 	message: string
 }
 
+const parseToDiagnostics = (text: string) => {
+	// パーサがまだ準備できていなければ何もしない
+	if (!parser) return
+
+  const tree = parser.parse(text);
+  if (!tree) return
+
+  const diagnostics: Diagnostic[] = [];
+
+  // 構文木をたどってエラーノードを探す
+  // ここではシンプルな例として、エラーを持つノードを再帰的に探す
+  function findErrorNodes(node: Node) {
+		if (node.hasError) {
+			 // ERRORノードやMISSINGノードを見つけたら
+			 const diagnostic: Diagnostic = {
+				  severity: DiagnosticSeverity.Error,
+				  range: {
+						start: { line: node.startPosition.row, character: node.startPosition.column },
+						end: { line: node.endPosition.row, character: node.endPosition.column }
+				  },
+				  message: `Syntax error near '${node.text}'`,
+				  source: 'arithmetic-lsp'
+			 };
+			 diagnostics.push(diagnostic);
+		}
+		// 子ノードも再帰的にチェック
+		for (const child of node.children) {
+			if (child) findErrorNodes(child);
+		}
+  }
+
+  findErrorNodes(tree.rootNode);
+
+  return diagnostics
+//   // 計算した診断結果をVS Codeに送信
+//   connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+}
+
 async function validateTextDocument(textDocument: TextDocument): Promise<Diagnostic[]> {
 	// In this simple example we get the settings for every validate run.
 	const settings = await getDocumentSettings(textDocument.uri)
+
+	return parseToDiagnostics(textDocument.getText()) ?? []
 
 	// The validator creates diagnostics for all uppercase words length 2 and more
 	const text = textDocument.getText()
