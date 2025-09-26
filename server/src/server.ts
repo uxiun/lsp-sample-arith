@@ -1,3 +1,8 @@
+try {
+	//@ts-ignore
+	delete WebAssembly.instantiateStreaming
+} catch {}
+
 import {
 	createConnection,
 	TextDocuments,

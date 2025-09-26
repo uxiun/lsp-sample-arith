@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@types/emscripten':
+        specifier: ^1.41.2
+        version: 1.41.2
       vscode-languageserver:
         specifier: ^9.0.1
         version: 9.0.1
@@ -16,9 +19,12 @@ importers:
         version: 1.0.12
       web-tree-sitter:
         specifier: ^0.25.10
-        version: 0.25.10
+        version: 0.25.10(@types/emscripten@1.41.2)
 
 packages:
+
+  '@types/emscripten@1.41.2':
+    resolution: {integrity: sha512-0EVXosRnffZuF+rsMM1ZVbfpwpvL2/hWycYQ/0GaH/VaoSJvcSmMl6fiPel9TZXHL3EhANxzqKOVFC6NFXyn8A==}
 
   vscode-jsonrpc@8.2.0:
     resolution: {integrity: sha512-C+r0eKJUIfiDIfwJhria30+TYWPtuHJXHtI7J0YlOmKAo7ogxP20T0zxB7HZQIFhIyvoBPwWskjxrvAtfjyZfA==}
@@ -47,6 +53,8 @@ packages:
 
 snapshots:
 
+  '@types/emscripten@1.41.2': {}
+
   vscode-jsonrpc@8.2.0: {}
 
   vscode-languageserver-protocol@3.17.5:
@@ -62,4 +70,6 @@ snapshots:
     dependencies:
       vscode-languageserver-protocol: 3.17.5
 
-  web-tree-sitter@0.25.10: {}
+  web-tree-sitter@0.25.10(@types/emscripten@1.41.2):
+    optionalDependencies:
+      '@types/emscripten': 1.41.2
