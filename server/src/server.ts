@@ -175,48 +175,42 @@ documents.onDidChangeContent(change => {
 	validateTextDocument(change.document)
 })
 
-const parseToDiagnostics = (text: string) => {
+const findErrorMissing = (
+	node: Node,
+	diagnostics: Diagnostic[] = []
+): Diagnostic[] => {
+	let message: string | undefined
+	if (node.isMissing) message = `Missing: ${node.type}`
+	if (node.type === "ERROR") message = `Unexpected: ${node.text}`
+	if (message)
+		diagnostics.push({
+			severity: DiagnosticSeverity.Error,
+			range: {
+				start: {
+					line: node.startPosition.row,
+					character: node.startPosition.column
+				},
+				end: {
+					line: node.endPosition.row,
+					character: node.endPosition.column
+				}
+			},
+			message,
+			source: "arithmetic-lsp"
+		})
+	for (const child of node.children)
+		if (child) diagnostics = [...diagnostics, ...findErrorMissing(child)]
+	return diagnostics
+}
+
+const diagnoseErrorNode = (text: string) => {
 	// パーサがまだ準備できていなければ何もしない
 	if (!parser) return
 
 	const tree = parser.parse(text)
 	if (!tree) return
 
-	const diagnostics: Diagnostic[] = []
-
-	// 構文木をたどってエラーノードを探す
-	// ここではシンプルな例として、エラーを持つノードを再帰的に探す
-	function findErrorNodes(node: Node) {
-		if (node.hasError) {
-			if (node.isError) {
-				// ERRORノードやMISSINGノードを見つけたら
-				const diagnostic: Diagnostic = {
-					severity: DiagnosticSeverity.Error,
-					range: {
-						start: {
-							line: node.startPosition.row,
-							character: node.startPosition.column
-						},
-						end: {
-							line: node.endPosition.row,
-							character: node.endPosition.column
-						}
-					},
-					message: `Syntax error near '${node.text}'`,
-					source: "arithmetic-lsp"
-				}
-				diagnostics.push(diagnostic)
-			} else {
-			}
-		}
-
-		// 子ノードも再帰的にチェック
-		for (const child of node.children) {
-			if (child) findErrorNodes(child)
-		}
-	}
-
-	findErrorNodes(tree.rootNode)
+	const diagnostics: Diagnostic[] = findErrorMissing(tree.rootNode)
 
 	return diagnostics
 }
@@ -227,7 +221,7 @@ async function validateTextDocument(
 	// In this simple example we get the settings for every validate run.
 	// const settings = await getDocumentSettings(textDocument.uri)
 
-	return parseToDiagnostics(textDocument.getText()) ?? []
+	return diagnoseErrorNode(textDocument.getText()) ?? []
 }
 
 connection.onDidChangeWatchedFiles(_change => {
