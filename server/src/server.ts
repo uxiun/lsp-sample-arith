@@ -1,49 +1,47 @@
-try {
-	//@ts-ignore
-	delete WebAssembly.instantiateStreaming
-} catch {}
-
 import {
 	createConnection,
 	TextDocuments,
-	Diagnostic,
+	type Diagnostic,
 	DiagnosticSeverity,
 	ProposedFeatures,
-	InitializeParams,
+	type InitializeParams,
 	DidChangeConfigurationNotification,
-	CompletionItem,
+	type CompletionItem,
 	CompletionItemKind,
-	TextDocumentPositionParams,
+	type TextDocumentPositionParams,
 	TextDocumentSyncKind,
-	InitializeResult,
+	type InitializeResult,
 	DocumentDiagnosticReportKind,
-	type DocumentDiagnosticReport,
+	type DocumentDiagnosticReport
 } from "vscode-languageserver/node"
 
 import { TextDocument } from "vscode-languageserver-textdocument"
-import { Language, Node, Parser } from 'web-tree-sitter'
-import path = require('path');
+import { Language, type Node, Parser } from "web-tree-sitter"
+import path = require("node:path")
 
 let parser: Parser
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
-const connection = createConnection(ProposedFeatures.all);
+const connection = createConnection(ProposedFeatures.all)
 
 // サーバーのメインロジック (connection.onInitialize の後などが良い)
-(async () => {
+;(async () => {
 	// Parserを初期化
-	await Parser.init();
-	parser = new Parser();
+	await Parser.init()
+	parser = new Parser()
 
 	// .wasm ファイルへのパスを解決
 	// __dirname はコンパイル後のJSファイルがある場所 (例: server/out) を指す
-	const wasmPath = path.resolve(__dirname, '../../parsers/tree-sitter-arith.wasm');
-	const ArithLanguage = await Language.load(wasmPath);
-	parser.setLanguage(ArithLanguage);
+	const wasmPath = path.resolve(
+		__dirname,
+		"../../parsers/tree-sitter-arith.wasm"
+	)
+	const ArithLanguage = await Language.load(wasmPath)
+	parser.setLanguage(ArithLanguage)
 
-	console.log('Arithmetic parser loaded successfully.');
-})(); // 非同期の即時実行関数で囲む
+	console.log("Arithmetic parser loaded successfully.")
+})() // 非同期の即時実行関数で囲む
 
 // Create a simple text document manager.
 const documents = new TextDocuments(TextDocument)
@@ -57,14 +55,16 @@ connection.onInitialize((params: InitializeParams) => {
 
 	// Does the client support the `workspace/configuration` request?
 	// If not, we fall back using global settings.
-	hasConfigurationCapability = !!(capabilities.workspace && !!capabilities.workspace.configuration)
+	hasConfigurationCapability = !!(
+		capabilities.workspace && !!capabilities.workspace.configuration
+	)
 	hasWorkspaceFolderCapability = !!(
 		capabilities.workspace && !!capabilities.workspace.workspaceFolders
 	)
 	hasDiagnosticRelatedInformationCapability = !!(
-		capabilities.textDocument &&
-		capabilities.textDocument.publishDiagnostics &&
-		capabilities.textDocument.publishDiagnostics.relatedInformation
+		capabilities.textDocument
+		&& capabilities.textDocument.publishDiagnostics
+		&& capabilities.textDocument.publishDiagnostics.relatedInformation
 	)
 
 	const result: InitializeResult = {
@@ -72,19 +72,19 @@ connection.onInitialize((params: InitializeParams) => {
 			textDocumentSync: TextDocumentSyncKind.Incremental,
 			// Tell the client that this server supports code completion.
 			completionProvider: {
-				resolveProvider: true,
+				resolveProvider: true
 			},
 			diagnosticProvider: {
 				interFileDependencies: false,
-				workspaceDiagnostics: false,
-			},
-		},
+				workspaceDiagnostics: false
+			}
+		}
 	}
 	if (hasWorkspaceFolderCapability) {
 		result.capabilities.workspace = {
 			workspaceFolders: {
-				supported: true,
-			},
+				supported: true
+			}
 		}
 	}
 	return result
@@ -93,7 +93,10 @@ connection.onInitialize((params: InitializeParams) => {
 connection.onInitialized(() => {
 	if (hasConfigurationCapability) {
 		// Register for all configuration changes.
-		connection.client.register(DidChangeConfigurationNotification.type, undefined)
+		connection.client.register(
+			DidChangeConfigurationNotification.type,
+			undefined
+		)
 	}
 	if (hasWorkspaceFolderCapability) {
 		connection.workspace.onDidChangeWorkspaceFolders(_event => {
@@ -137,7 +140,7 @@ function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
 	if (!result) {
 		result = connection.workspace.getConfiguration({
 			scopeUri: resource,
-			section: "languageServerExample",
+			section: "languageServerExample"
 		})
 		documentSettings.set(resource, result)
 	}
@@ -154,14 +157,14 @@ connection.languages.diagnostics.on(async params => {
 	if (document !== undefined) {
 		return {
 			kind: DocumentDiagnosticReportKind.Full,
-			items: await validateTextDocument(document),
+			items: await validateTextDocument(document)
 		} satisfies DocumentDiagnosticReport
 	} else {
 		// We don't know the document. We can either try to read it from disk
 		// or we don't report problems for it.
 		return {
 			kind: DocumentDiagnosticReportKind.Full,
-			items: [],
+			items: []
 		} satisfies DocumentDiagnosticReport
 	}
 })
@@ -172,112 +175,59 @@ documents.onDidChangeContent(change => {
 	validateTextDocument(change.document)
 })
 
-interface PatternProblem {
-	pattern: RegExp
-	severity: DiagnosticSeverity
-	message: string
-}
-
 const parseToDiagnostics = (text: string) => {
 	// パーサがまだ準備できていなければ何もしない
 	if (!parser) return
 
-  const tree = parser.parse(text);
-  if (!tree) return
+	const tree = parser.parse(text)
+	if (!tree) return
 
-  const diagnostics: Diagnostic[] = [];
-
-  // 構文木をたどってエラーノードを探す
-  // ここではシンプルな例として、エラーを持つノードを再帰的に探す
-  function findErrorNodes(node: Node) {
-		if (node.hasError) {
-			 // ERRORノードやMISSINGノードを見つけたら
-			 const diagnostic: Diagnostic = {
-				  severity: DiagnosticSeverity.Error,
-				  range: {
-						start: { line: node.startPosition.row, character: node.startPosition.column },
-						end: { line: node.endPosition.row, character: node.endPosition.column }
-				  },
-				  message: `Syntax error near '${node.text}'`,
-				  source: 'arithmetic-lsp'
-			 };
-			 diagnostics.push(diagnostic);
-		}
-		// 子ノードも再帰的にチェック
-		for (const child of node.children) {
-			if (child) findErrorNodes(child);
-		}
-  }
-
-  findErrorNodes(tree.rootNode);
-
-  return diagnostics
-//   // 計算した診断結果をVS Codeに送信
-//   connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
-}
-
-async function validateTextDocument(textDocument: TextDocument): Promise<Diagnostic[]> {
-	// In this simple example we get the settings for every validate run.
-	const settings = await getDocumentSettings(textDocument.uri)
-
-	return parseToDiagnostics(textDocument.getText()) ?? []
-
-	// The validator creates diagnostics for all uppercase words length 2 and more
-	const text = textDocument.getText()
-	const patternProblems: PatternProblem[] = [
-		{
-			pattern: /\b[A-z]+\b/g,
-			message: "not a number",
-			severity: DiagnosticSeverity.Error
-		},
-		{
-			pattern: /\b[0-9]{2,}\b/g,
-			message: "先頭の0は不要",
-			severity: DiagnosticSeverity.Warning,
-		},
-		{
-			pattern: /\b[+-]\s+0\b/g,
-			message: "不要な計算",
-			severity: DiagnosticSeverity.Warning,
-		},
-		{
-			pattern: /\b\/\s+0\b/g,
-			message: "0で割れない",
-			severity: DiagnosticSeverity.Error,
-		},
-	]
-	let m: RegExpExecArray | null
-
-	let problems = 0
 	const diagnostics: Diagnostic[] = []
 
-	patternProblems.forEach(p => {
-		while ((m = p.pattern.exec(text)) && problems < settings.maxNumberOfProblems) {
-			problems++
-			const diagnostic: Diagnostic = {
-				severity: p.severity,
-				range: {
-					start: textDocument.positionAt(m.index),
-					end: textDocument.positionAt(m.index + m[0].length),
-				},
-				message: p.message,
-				source: "ex",
-			}
-			if (hasDiagnosticRelatedInformationCapability) {
-				diagnostic.relatedInformation = [
-					{
-						location: {
-							uri: textDocument.uri,
-							range: Object.assign({}, diagnostic.range),
+	// 構文木をたどってエラーノードを探す
+	// ここではシンプルな例として、エラーを持つノードを再帰的に探す
+	function findErrorNodes(node: Node) {
+		if (node.hasError) {
+			if (node.isError) {
+				// ERRORノードやMISSINGノードを見つけたら
+				const diagnostic: Diagnostic = {
+					severity: DiagnosticSeverity.Error,
+					range: {
+						start: {
+							line: node.startPosition.row,
+							character: node.startPosition.column
 						},
-						message: "計算式に関する問題",
+						end: {
+							line: node.endPosition.row,
+							character: node.endPosition.column
+						}
 					},
-				]
+					message: `Syntax error near '${node.text}'`,
+					source: "arithmetic-lsp"
+				}
+				diagnostics.push(diagnostic)
+			} else {
 			}
-			diagnostics.push(diagnostic)
 		}
-	})
+
+		// 子ノードも再帰的にチェック
+		for (const child of node.children) {
+			if (child) findErrorNodes(child)
+		}
+	}
+
+	findErrorNodes(tree.rootNode)
+
 	return diagnostics
+}
+
+async function validateTextDocument(
+	textDocument: TextDocument
+): Promise<Diagnostic[]> {
+	// In this simple example we get the settings for every validate run.
+	// const settings = await getDocumentSettings(textDocument.uri)
+
+	return parseToDiagnostics(textDocument.getText()) ?? []
 }
 
 connection.onDidChangeWatchedFiles(_change => {
@@ -286,23 +236,25 @@ connection.onDidChangeWatchedFiles(_change => {
 })
 
 // This handler provides the initial list of the completion items.
-connection.onCompletion((_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-	// The pass parameter contains the position of the text document in
-	// which code complete got requested. For the example we ignore this
-	// info and always provide the same completion items.
-	return [
-		{
-			label: "TypeScript",
-			kind: CompletionItemKind.Text,
-			data: 1,
-		},
-		{
-			label: "JavaScript",
-			kind: CompletionItemKind.Text,
-			data: 2,
-		},
-	]
-})
+connection.onCompletion(
+	(_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+		// The pass parameter contains the position of the text document in
+		// which code complete got requested. For the example we ignore this
+		// info and always provide the same completion items.
+		return [
+			{
+				label: "TypeScript",
+				kind: CompletionItemKind.Text,
+				data: 1
+			},
+			{
+				label: "JavaScript",
+				kind: CompletionItemKind.Text,
+				data: 2
+			}
+		]
+	}
+)
 
 // This handler resolves additional information for the item selected in
 // the completion list.
